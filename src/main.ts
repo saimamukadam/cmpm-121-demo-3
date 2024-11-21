@@ -48,20 +48,71 @@ playerMarker.addTo(map);
 
 // track player's coins inventory
 let playerCoins = 0;
-//let playerPoints = 0;
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!; // element `statusPanel` is defined in index.html
 statusPanel.innerHTML = `You have ${playerCoins} coins.`;
 
+// helper func to convert latitude/longitude to global grid (i,j)
+function latLngToGrid(lat: number, lng: number): { i: number; j: number } {
+  // global coordinates system setup
+  const LATITUDE_TO_GRID = 1e6; // scaling factor
+  const LONGITUDE_TO_GRID = 1e6; // scaling factor
+
+  // convert lat/lng into global grid coordinates
+  const i = Math.round(lat * LATITUDE_TO_GRID);
+  const j = Math.round(lng * LONGITUDE_TO_GRID);
+
+  return { i, j };
+}
+
+// flyweight pattern
+interface Coin {
+  i: number;
+  j: number;
+  serial: number;
+}
+
+interface Cache {
+  i: number;
+  j: number;
+  coins: Coin[];
+}
+
+// cache for storing grid coordinates w a cache for each unique location
+const cacheGrid: { [key: string]: Cache } = {};
+
+// func to get or create cache location (flyweight pattern)
+function getCache(i: number, j: number): Cache {
+  const key = `${i}:${j}`;
+  if (!cacheGrid[key]) {
+    // if cache doesnt exist then create one
+    cacheGrid[key] = { i, j, coins: [] }; // store coins as array
+  }
+  return cacheGrid[key];
+}
+
+// func to spawn coin at given cache
+function spawnCoin(i: number, j: number, serial: number): void {
+  const cache = getCache(i, j);
+  const coin: Coin = { i, j, serial };
+  cache.coins.push(coin); // adding to cache coins array
+
+  const coinId = `${i}:${j}#${serial}`;
+  console.log(`Coin Spawned: ${coinId}`);
+}
+
 // Add caches to the map by cell numbers
 function spawnCache(i: number, j: number) {
-  // Convert cell numbers into lat/lng bounds
+  // Convert local i,j coords to global i,j
   const origin = OAKES_CLASSROOM;
+  const { i: globalI, j: globalJ } = latLngToGrid(
+    origin.lat + i * TILE_DEGREES,
+    origin.lng + j * TILE_DEGREES,
+  );
+  // add rectangle to map to rep cache
   const bounds = leaflet.latLngBounds([
     [origin.lat + i * TILE_DEGREES, origin.lng + j * TILE_DEGREES],
     [origin.lat + (i + 1) * TILE_DEGREES, origin.lng + (j + 1) * TILE_DEGREES],
   ]);
-
-  // Add a rectangle to the map to represent the cache
   const rect = leaflet.rectangle(bounds);
   rect.addTo(map);
 
@@ -73,10 +124,10 @@ function spawnCache(i: number, j: number) {
     // The popup offers a description and button
     const popupDiv = document.createElement("div");
     popupDiv.innerHTML = `
-                <div>There is a cache here at "${i},${j}". It has value <span id="value">${pointValue}</span>.</div>
-                <button id="collect">Collect Coin</button>
-                <button id="deposit">Deposit Coin</button>
-    `;
+                  <div>There is a cache here at "${globalI},${globalJ}". It has value <span id="value">${pointValue}</span>.</div>
+                  <button id="collect">Collect Coin</button>
+                  <button id="deposit">Deposit Coin</button>
+      `;
 
     // Clicking the button decrements the cache's value and increments the player's coins
     // Handle the "Collect Coin" button (collecting a coin from the cache)
@@ -120,3 +171,8 @@ for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
     }
   }
 }
+
+// display coins and caches
+const { i, j } = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng);
+spawnCoin(i, j, 0);
+spawnCoin(i, j, 1);
