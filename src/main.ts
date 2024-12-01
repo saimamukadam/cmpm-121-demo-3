@@ -176,3 +176,33 @@ for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
 const { i, j } = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng);
 spawnCoin(i, j, 0);
 spawnCoin(i, j, 1);
+
+// movement step size in degrees
+const MOVEMENT_STEP = 0.0001; // adjust this value as needed
+
+// update player's position on map
+function movePlayer(latChange: number, lngChange: number) {
+  const currentLatLng = playerMarker.getLatLng();
+  const newLat = currentLatLng.lat + latChange;
+  const newLng = currentLatLng.lng + lngChange;
+
+  const newLatLng = leaflet.latLng(newLat, newLng);
+  playerMarker.setLatLng(newLatLng);
+
+  // update status panel
+  statusPanel.innerHTML = `You are at (${newLat.toFixed(5)}, ${
+    newLng.toFixed(5)
+  })`;
+}
+
+// get references to buttons
+const northButton = document.querySelector<HTMLButtonElement>("#north")!;
+const southButton = document.querySelector<HTMLButtonElement>("#south")!;
+const westButton = document.querySelector<HTMLButtonElement>("#west")!;
+const eastButton = document.querySelector<HTMLButtonElement>("#east")!;
+
+// add event listeners to each button
+northButton.addEventListener("click", () => movePlayer(MOVEMENT_STEP, 0)); // Move north
+southButton.addEventListener("click", () => movePlayer(-MOVEMENT_STEP, 0)); // Move south
+westButton.addEventListener("click", () => movePlayer(0, -MOVEMENT_STEP)); // Move west
+eastButton.addEventListener("click", () => movePlayer(0, MOVEMENT_STEP)); // Move east
