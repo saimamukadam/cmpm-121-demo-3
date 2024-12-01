@@ -21,6 +21,7 @@ const GAMEPLAY_ZOOM_LEVEL = 19;
 const TILE_DEGREES = 1e-4;
 const NEIGHBORHOOD_SIZE = 8;
 const CACHE_SPAWN_PROBABILITY = 0.1;
+const CACHE_RADIUS = 0.01; // defines how far caches can be spawned around player in lat/lng degrees
 
 // Create the map (element with id "map" is defined in index.html)
 const map = leaflet.map(document.getElementById("map")!, {
@@ -81,24 +82,24 @@ interface Cache {
 const cacheGrid: { [key: string]: Cache } = {};
 
 // func to get or create cache location (flyweight pattern)
-function getCache(i: number, j: number): Cache {
-  const key = `${i}:${j}`;
-  if (!cacheGrid[key]) {
-    // if cache doesnt exist then create one
-    cacheGrid[key] = { i, j, coins: [] }; // store coins as array
-  }
-  return cacheGrid[key];
-}
+//function getCache(i: number, j: number): Cache {
+//  const key = `${i}:${j}`;
+//  if (!cacheGrid[key]) {
+// if cache doesnt exist then create one
+//    cacheGrid[key] = { i, j, coins: [] }; // store coins as array
+//  }
+//  return cacheGrid[key];
+//}
 
 // func to spawn coin at given cache
-function spawnCoin(i: number, j: number, serial: number): void {
-  const cache = getCache(i, j);
-  const coin: Coin = { i, j, serial };
-  cache.coins.push(coin); // adding to cache coins array
+//function spawnCoin(i: number, j: number, serial: number): void {
+//  const cache = getCache(i, j);
+//  const coin: Coin = { i, j, serial };
+//  cache.coins.push(coin); // adding to cache coins array
 
-  const coinId = `${i}:${j}#${serial}`;
-  console.log(`Coin Spawned: ${coinId}`);
-}
+//const coinId = `${i}:${j}#${serial}`;
+//  console.log(`Coin Spawned: ${i}:${j}#${serial}`);
+//}
 
 // Add caches to the map by cell numbers
 function spawnCache(i: number, j: number) {
@@ -163,19 +164,60 @@ function spawnCache(i: number, j: number) {
 }
 
 // Look around the player's neighborhood for caches to spawn
-for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
-  for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
-    // If location i,j is lucky enough, spawn a cache!
-    if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
-      spawnCache(i, j);
+//for (let i = -NEIGHBORHOOD_SIZE; i < NEIGHBORHOOD_SIZE; i++) {
+//  for (let j = -NEIGHBORHOOD_SIZE; j < NEIGHBORHOOD_SIZE; j++) {
+// If location i,j is lucky enough, spawn a cache!
+//    if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
+//      spawnCache(i, j);
+//    }
+//  }
+//}
+
+// display coins and caches
+//const { i, j } = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng);
+//spawnCoin(i, j, 0);
+//spawnCoin(i, j, 1);
+
+//////////////////////////////CHANGES FOR CACHE REGEN//////////////////////////////////////////////////
+// func to clear caches that r too far from player
+function clearDistantCaches(playerLatLng: leaflet.LatLng) {
+  //const playerLat = playerLatLng.lat;
+  //const playerLng = playerLatLng.lng;
+
+  // Iterate through the cacheGrid and remove caches too far from the player
+  Object.keys(cacheGrid).forEach((key) => {
+    const cache = cacheGrid[key];
+    const cacheLatLng = leaflet.latLng(
+      OAKES_CLASSROOM.lat + cache.i * TILE_DEGREES,
+      OAKES_CLASSROOM.lng + cache.j * TILE_DEGREES,
+    );
+
+    const distance = playerLatLng.distanceTo(cacheLatLng); // Get distance in meters
+    if (distance > CACHE_RADIUS) { // Cache is too far in degrees
+      delete cacheGrid[key]; // Remove cache if it's too far
+      console.log(`Removed cache at ${cacheLatLng.lat}, ${cacheLatLng.lng}`);
+    }
+  });
+}
+
+// Function to regenerate caches in the player's current neighborhood
+function regenerateCaches() {
+  const currentPosition = playerMarker.getLatLng();
+  //const { lat, lng } = currentPosition;
+
+  // Clear distant caches
+  clearDistantCaches(currentPosition);
+
+  // Loop through the neighborhood size and add new caches
+  for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
+    for (let j = -NEIGHBORHOOD_SIZE; j <= NEIGHBORHOOD_SIZE; j++) {
+      if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
+        spawnCache(i, j);
+      }
     }
   }
 }
-
-// display coins and caches
-const { i, j } = latLngToGrid(OAKES_CLASSROOM.lat, OAKES_CLASSROOM.lng);
-spawnCoin(i, j, 0);
-spawnCoin(i, j, 1);
+//////////////////////////////////////////////////////////////////////////////////////////////////////
 
 // movement step size in degrees
 const MOVEMENT_STEP = 0.0001; // adjust this value as needed
@@ -193,6 +235,9 @@ function movePlayer(latChange: number, lngChange: number) {
   statusPanel.innerHTML = `You are at (${newLat.toFixed(5)}, ${
     newLng.toFixed(5)
   })`;
+
+  // regenerate caches around new position
+  regenerateCaches();
 }
 
 // get references to buttons
