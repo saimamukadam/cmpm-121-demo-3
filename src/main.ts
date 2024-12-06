@@ -53,7 +53,7 @@ const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = `You have ${playerCoins} coins.`;
 
 // helper func to convert latitude/longitude to global grid (i,j)
-function latLngToGrid(lat: number, lng: number): { i: number; j: number } {
+function _latLngToGrid(lat: number, lng: number): { i: number; j: number } {
   // global coordinates system setup
   const LATITUDE_TO_GRID = 1e6; // scaling factor
   const LONGITUDE_TO_GRID = 1e6; // scaling factor
@@ -126,118 +126,185 @@ class CacheManager {
 
 const cacheManager = new CacheManager();
 
-// Add caches to the map by cell numbers
-function spawnCache(i: number, j: number) {
-  // Convert local i,j coords to global i,j
-  const origin = OAKES_CLASSROOM;
-  const { i: globalI, j: globalJ } = latLngToGrid(
-    origin.lat + i * TILE_DEGREES,
-    origin.lng + j * TILE_DEGREES,
-  );
+class UIManager {
+  // handles updating status panel
+  private statusPanel: HTMLDivElement;
 
-  // check if this cache has been seen before (if it's in the memento)
-  const key = `${i}:${j}`;
-  let cache = cacheGrid[key];
-
-  // if this cache does not exist in the cacheGrid, create a new one
-  if (!cache) {
-    cache = new Cache(i, j); // new cache, not yet saved or restored
+  constructor(statusPanelId: string) {
+    const panel = document.querySelector<HTMLDivElement>(statusPanelId);
+    if (!panel) throw new Error(`Cannot find status panel: ${statusPanelId}`);
+    this.statusPanel = panel;
   }
 
-  // restore each cache state if it was saved earlier
-  cacheManager.restoreCacheState(cache);
+  updateStatus(text: string): void {
+    this.statusPanel.innerHTML = text;
+  }
+  // Adding/removing elements (like markers or rectangles) to/from the map
 
-  // Ensure each new cache starts with a random number of coins (you can adjust this as needed)
-  if (cache.coins.length === 0) {
-    const numCoins = Math.floor(luck([i, j, "coinCount"].toString()) * 5) + 1; // Random number of coins (1-5)
-    for (let k = 0; k < numCoins; k++) {
-      cache.coins.push({ i: cache.i, j: cache.j, serial: k });
-    }
+  // Managing popups (their behaviors and event listeners
+}
+
+const uiManager = new UIManager("#statusPanel");
+
+class MapManager {
+  private map: leaflet.Map;
+
+  constructor(map: leaflet.Map) {
+    this.map = map;
   }
 
-  // add rectangle to map to rep cache
-  const bounds = leaflet.latLngBounds([
-    [origin.lat + i * TILE_DEGREES, origin.lng + j * TILE_DEGREES],
-    [origin.lat + (i + 1) * TILE_DEGREES, origin.lng + (j + 1) * TILE_DEGREES],
-  ]);
-  const rect = leaflet.rectangle(bounds);
-  rect.addTo(map);
+  addCacheToMap(
+    cache: Cache,
+    bounds: leaflet.LatLngBounds,
+    gridPosition: { i: number; j: number },
+  ): void {
+    // Create a rectangle on the map
+    const rect = leaflet.rectangle(bounds);
+    rect.addTo(this.map);
 
-  // Handle interactions with the cache
-  rect.bindPopup(() => {
-    // Each cache has a random point value, mutable by the player
-    // The popup offers a description and button
-    const popupDiv = document.createElement("div");
-    popupDiv.innerHTML = `
-      <div>There is a cache here at "${globalI},${globalJ}". It has <span id="value">${cache.coins.length}</span> coins remaining.</div>
-      <button id="collect">Collect Coin</button>
-      <button id="deposit">Deposit Coin</button>
+    // Attach a popup to the rectangle
+    rect.bindPopup(() => {
+      const globalI = gridPosition.i;
+      const globalJ = gridPosition.j;
+
+      // Create popup content
+      const popupDiv = document.createElement("div");
+      popupDiv.innerHTML = `
+        <div>There is a cache here at "${globalI},${globalJ}". It has <span id="value">${cache.coins.length}</span> coins remaining.</div>
+        <button id="collect">Collect Coin</button>
+        <button id="deposit">Deposit Coin</button>
       `;
 
-    // Clicking the button decrements the cache's value and increments the player's coins
-    // Handle the "Collect Coin" button (collecting a coin from the cache)
-    popupDiv
-      .querySelector<HTMLButtonElement>("#collect")!
-      .addEventListener("click", () => {
-        if (cache.coins.length > 0) { // making sure cache has coins first
-          // remove a coin from the cache
-          cache.coins.pop();
-          playerCoins++;
-          statusPanel.innerHTML = `You have ${playerCoins} coins.`;
+      // Add event listeners to interact with the cache
+      this.addPopupEventListeners(popupDiv, cache);
 
-          // Update the displayed coin count in the popup
+      return popupDiv;
+    });
+  }
+
+  private addPopupEventListeners(popupDiv: HTMLElement, cache: Cache): void {
+    // Handle "Collect Coin" button
+    popupDiv.querySelector<HTMLButtonElement>("#collect")!.addEventListener(
+      "click",
+      () => {
+        if (cache.coins.length > 0) {
+          cache.coins.pop(); // Remove a coin from the cache
+          playerCoins++;
+          statusPanel.innerHTML = `You have ${playerCoins} coins.`; // Update status panel
+
+          // Update the cache state
+          cacheManager.saveCacheState(cache);
+
+          // Update the popup coin count
           const coinValue = popupDiv.querySelector<HTMLSpanElement>("#value");
           if (coinValue) {
-            coinValue.textContent = cache.coins.length.toString(); // Update the coin count displayed in the popup
+            coinValue.textContent = cache.coins.length.toString();
           }
-
-          // after coin collection, update the cache's memento state
-          cacheManager.saveCacheState(cache);
-          console.log(
-            `Cache state updated. Coins remaining: ${cache.coins.length}`,
-          );
         } else {
           alert("This cache is out of coins!");
         }
-      });
+      },
+    );
 
-    popupDiv
-      .querySelector<HTMLButtonElement>("#deposit")!
-      .addEventListener("click", () => {
+    // Handle "Deposit Coin" button
+    popupDiv.querySelector<HTMLButtonElement>("#deposit")!.addEventListener(
+      "click",
+      () => {
         if (playerCoins > 0) {
-          // Add a coin to the cache
           cache.coins.push({
             i: cache.i,
             j: cache.j,
             serial: cache.coins.length,
           });
+          playerCoins--;
+          statusPanel.innerHTML = `You have ${playerCoins} coins.`; // Update status panel
 
-          // Update the displayed coin count in the popup
+          // Update the cache state
+          cacheManager.saveCacheState(cache);
+
+          // Update the popup coin count
           const coinValue = popupDiv.querySelector<HTMLSpanElement>("#value");
           if (coinValue) {
-            coinValue.textContent = cache.coins.length.toString(); // Update the coin count in the popup
+            coinValue.textContent = cache.coins.length.toString();
           }
-
-          // Update the memento state
-          cacheManager.saveCacheState(cache);
-          playerCoins--;
-          statusPanel.innerHTML = `You have ${playerCoins} coins.`;
-          console.log(
-            `Cache state updated. Coins added. New total: ${cache.coins.length}`,
-          );
         } else {
           alert("You have no coins to deposit!");
         }
-      });
-    return popupDiv;
-  });
+      },
+    );
+  }
+}
 
-  // save the cache state after creation or update
+const mapManager = new MapManager(map);
+
+class GameController {
+  private uiManager: UIManager;
+  private mapManager: MapManager;
+
+  constructor(uiManager: UIManager, mapManager: MapManager) {
+    this.uiManager = uiManager;
+    this.mapManager = mapManager;
+  }
+
+  movePlayer(latChange: number, lngChange: number): void {
+    // Move the player
+    movePlayer(latChange, lngChange, this.uiManager);
+
+    // Regenerate caches around the player's new position
+    regenerateCaches(this.mapManager);
+
+    // Update the UI status (you can customize this further)
+    const currentPosition = playerMarker.getLatLng();
+    this.uiManager.updateStatus(
+      `Player moved to (${currentPosition.lat.toFixed(5)}, ${
+        currentPosition.lng.toFixed(5)
+      })`,
+    );
+  }
+}
+
+const gameController = new GameController(uiManager, mapManager);
+
+function spawnCache(i: number, j: number, mapManager: MapManager) {
+  const key = `${i}:${j}`;
+  let cache = cacheGrid[key];
+
+  if (!cache) {
+    // Create a new cache
+    cache = new Cache(i, j);
+  }
+
+  // Restore the cache state if it existed before
+  cacheManager.restoreCacheState(cache);
+
+  // Ensure new caches start with some coins
+  if (cache.coins.length === 0) {
+    const numCoins = Math.floor(luck([i, j, "coinCount"].toString()) * 5) + 1;
+    for (let k = 0; k < numCoins; k++) {
+      cache.coins.push({ i: cache.i, j: cache.j, serial: k });
+    }
+  }
+
+  // Save the cache state
   cacheManager.saveCacheState(cache);
+
+  // Delegate UI-related tasks to MapManager
+  const bounds = leaflet.latLngBounds([
+    [
+      OAKES_CLASSROOM.lat + i * TILE_DEGREES,
+      OAKES_CLASSROOM.lng + j * TILE_DEGREES,
+    ],
+    [
+      OAKES_CLASSROOM.lat + (i + 1) * TILE_DEGREES,
+      OAKES_CLASSROOM.lng + (j + 1) * TILE_DEGREES,
+    ],
+  ]);
+
+  mapManager.addCacheToMap(cache, bounds, { i, j });
 }
 
 // Function to regenerate caches in the player's current neighborhood
-function regenerateCaches() {
+function regenerateCaches(mapManager: MapManager): void {
   const currentPosition = playerMarker.getLatLng();
 
   // Clear distant caches
@@ -247,7 +314,7 @@ function regenerateCaches() {
   for (let i = -NEIGHBORHOOD_SIZE; i <= NEIGHBORHOOD_SIZE; i++) {
     for (let j = -NEIGHBORHOOD_SIZE; j <= NEIGHBORHOOD_SIZE; j++) {
       if (luck([i, j].toString()) < CACHE_SPAWN_PROBABILITY) {
-        spawnCache(i, j);
+        spawnCache(i, j, mapManager);
       }
     }
   }
@@ -274,7 +341,11 @@ function clearDistantCaches(playerLatLng: leaflet.LatLng) {
 const MOVEMENT_STEP = 0.0001; // adjust this value as needed
 
 // update player's position on map
-function movePlayer(latChange: number, lngChange: number) {
+function movePlayer(
+  latChange: number,
+  lngChange: number,
+  uiManager: UIManager,
+) {
   const currentLatLng = playerMarker.getLatLng();
   const newLat = currentLatLng.lat + latChange;
   const newLng = currentLatLng.lng + lngChange;
@@ -282,13 +353,13 @@ function movePlayer(latChange: number, lngChange: number) {
   const newLatLng = leaflet.latLng(newLat, newLng);
   playerMarker.setLatLng(newLatLng);
 
-  // update status panel
-  statusPanel.innerHTML = `You are at (${newLat.toFixed(5)}, ${
-    newLng.toFixed(5)
-  })`;
+  // use UIManager to update status panel
+  uiManager.updateStatus(
+    `You are at (${newLat.toFixed(5)}, ${newLng.toFixed(5)})`,
+  );
 
   // regenerate caches around new position
-  regenerateCaches();
+  regenerateCaches(mapManager);
 }
 
 // get references to buttons
@@ -297,11 +368,22 @@ const southButton = document.querySelector<HTMLButtonElement>("#south")!;
 const westButton = document.querySelector<HTMLButtonElement>("#west")!;
 const eastButton = document.querySelector<HTMLButtonElement>("#east")!;
 
-// add event listeners to each button
-northButton.addEventListener("click", () => movePlayer(MOVEMENT_STEP, 0)); // Move north
-southButton.addEventListener("click", () => movePlayer(-MOVEMENT_STEP, 0)); // Move south
-westButton.addEventListener("click", () => movePlayer(0, -MOVEMENT_STEP)); // Move west
-eastButton.addEventListener("click", () => movePlayer(0, MOVEMENT_STEP)); // Move east
+northButton.addEventListener(
+  "click",
+  () => gameController.movePlayer(MOVEMENT_STEP, 0),
+); // Move north
+southButton.addEventListener(
+  "click",
+  () => gameController.movePlayer(-MOVEMENT_STEP, 0),
+); // Move south
+westButton.addEventListener(
+  "click",
+  () => gameController.movePlayer(0, -MOVEMENT_STEP),
+); // Move west
+eastButton.addEventListener(
+  "click",
+  () => gameController.movePlayer(0, MOVEMENT_STEP),
+); // Move east
 
 // initial cache generation
-regenerateCaches();
+regenerateCaches(mapManager);
