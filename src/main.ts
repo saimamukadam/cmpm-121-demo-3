@@ -59,7 +59,7 @@ const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = `You have ${playerCoins} coins.`;
 
 // track player's movement history w array
-const moveHistory: leaflet.LatLng[] = [];
+let moveHistory: leaflet.LatLng[] = [];
 
 // create a polyline to rep the movement history
 const movePolyline = leaflet.polyline([], {
@@ -226,6 +226,16 @@ class MapManager {
       const popupDiv = document.createElement("div");
       popupDiv.innerHTML = `
         <div>There is a cache here at "${globalI},${globalJ}". It has <span id="value">${cache.coins.length}</span> coins remaining.</div>
+        <div>Coins in this cache:</div>
+        <ul>
+          ${
+        cache.coins.map((coin, index) => `
+            <li><span class="coin" data-serial="${coin.serial}">Coin ${
+          index + 1
+        }</span></li>
+          `).join("")
+      }
+        </ul>
         <button id="collect">Collect Coin</button>
         <button id="deposit">Deposit Coin</button>
       `;
@@ -288,6 +298,23 @@ class MapManager {
         } else {
           alert("You have no coins to deposit!");
         }
+      },
+    );
+
+    // allow clicking on coin identifier to center map on cache's home
+    popupDiv.querySelectorAll<HTMLSpanElement>(".coin").forEach(
+      (coinElement) => {
+        coinElement.addEventListener("click", () => {
+          // center map on this cache
+          const cacheLatLng = leaflet.latLng(
+            OAKES_CLASSROOM.lat + cache.i * TILE_DEGREES,
+            OAKES_CLASSROOM.lng + cache.j * TILE_DEGREES,
+          );
+          map.setView(cacheLatLng, GAMEPLAY_ZOOM_LEVEL);
+          console.log(
+            `Centering map on cache at ${cacheLatLng.lat}, ${cacheLatLng.lng}`,
+          );
+        });
       },
     );
   }
@@ -437,6 +464,7 @@ const northButton = document.querySelector<HTMLButtonElement>("#north")!;
 const southButton = document.querySelector<HTMLButtonElement>("#south")!;
 const westButton = document.querySelector<HTMLButtonElement>("#west")!;
 const eastButton = document.querySelector<HTMLButtonElement>("#east")!;
+const resetButton = document.querySelector<HTMLButtonElement>("#reset")!;
 
 northButton.addEventListener(
   "click",
@@ -454,6 +482,14 @@ eastButton.addEventListener(
   "click",
   () => gameController.movePlayer(0, MOVEMENT_STEP),
 ); // Move east
+resetButton.addEventListener("click", () => {
+  const confirmation = prompt(
+    "Are you sure you want to reset the game? This will erase all coins and reset your location history. Type 'yes' to confirm.",
+  );
+  if (confirmation && confirmation.toLowerCase() === "yes") {
+    resetGame();
+  }
+});
 
 // initial cache generation
 regenerateCaches(mapManager);
@@ -574,3 +610,31 @@ gameController.movePlayer = function (
     })`,
   );
 };
+
+function resetGame() {
+  // reset player's coins
+  playerCoins = 0;
+  statusPanel.innerHTML = `You have ${playerCoins} coins.`;
+
+  // reset player's position
+  playerMarker.setLatLng(OAKES_CLASSROOM);
+  map.setView(OAKES_CLASSROOM, GAMEPLAY_ZOOM_LEVEL);
+
+  // clear cache grid + reset cache markers
+  for (const key in cacheGrid) {
+    delete cacheGrid[key];
+  }
+
+  // clear all saved data from local storage
+  localStorage.removeItem("gameState");
+  localStorage.removeItem("cacheStates");
+
+  // clear polyline
+  moveHistory = []; // clear history
+  movePolyline.setLatLngs(moveHistory); // update polyline w empty array
+
+  // regenerate caches after reset (they will be reloaded from the mementos)
+  regenerateCaches(mapManager);
+
+  console.log("Game reset!");
+}
