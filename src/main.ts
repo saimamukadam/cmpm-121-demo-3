@@ -5,6 +5,7 @@ import "leaflet/dist/leaflet.css"; // style sheets
 import "./style.css";
 import "./leafletWorkaround.ts"; // Fix missing marker images
 import luck from "./luck.ts"; // Deterministic random number generator
+import { latLng as _latLng } from "npm:@types/leaflet@^1.9.14";
 
 // app title
 const APP_NAME = "Geocoin Carrier";
@@ -56,6 +57,17 @@ playerMarker.addTo(map);
 let playerCoins = 0;
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = `You have ${playerCoins} coins.`;
+
+// track player's movement history w array
+const moveHistory: leaflet.LatLng[] = [];
+
+// create a polyline to rep the movement history
+const movePolyline = leaflet.polyline([], {
+  color: "blue",
+  weight: 4,
+  opacity: 0.7,
+  dashArray: "5, 10",
+}).addTo(map);
 
 // track geolocation state
 let isGeolocationEnabled = false; // flag to track geolocation status
@@ -386,6 +398,15 @@ function clearDistantCaches(playerLatLng: leaflet.LatLng) {
 // movement step size in degrees
 const MOVEMENT_STEP = 0.0001; // adjust this value as needed
 
+// update movement history and polyline everytime player moves
+function updateMovementHistory(newPosition: leaflet.latLng) {
+  // add new pos to movement hist.
+  moveHistory.push(newPosition);
+
+  // update polyline w new movement hist.
+  movePolyline.setLatLngs(moveHistory);
+}
+
 // update player's position on map
 function movePlayer(
   latChange: number,
@@ -398,6 +419,9 @@ function movePlayer(
 
   const newLatLng = leaflet.latLng(newLat, newLng);
   playerMarker.setLatLng(newLatLng);
+
+  // update movement hist. and polyline
+  updateMovementHistory(newLatLng);
 
   // use UIManager to update status panel
   uiManager.updateStatus(
