@@ -13,6 +13,11 @@ const header = document.createElement("h1");
 header.innerHTML = APP_NAME;
 app.append(header);
 
+// load saved game state from local storage on page load
+globalThis.addEventListener("load", () => {
+  loadGameState();
+});
+
 // Location of our classroom (as identified on Google Maps)
 const OAKES_CLASSROOM = leaflet.latLng(36.98949379578401, -122.06277128548504);
 
@@ -134,6 +139,8 @@ class CacheManager {
   saveCacheState(cache: Cache): void {
     const key = `${cache.i}:${cache.j}`;
     this.mementos[key] = cache.toMemento(); // save cache state as memento string
+    // save all mementos to localStorage for persistence
+    localStorage.setItem("cacheStates", JSON.stringify(this.mementos));
   }
 
   // restore cache's state from a memento
@@ -148,6 +155,19 @@ class CacheManager {
 }
 
 const cacheManager = new CacheManager();
+
+// Function to calculate the bounds of a cache based on its grid position
+function getBoundsFromCache(cache: Cache) {
+  const northWestLat = cache.i * TILE_DEGREES;
+  const northWestLng = cache.j * TILE_DEGREES;
+  const southEastLat = (cache.i + 1) * TILE_DEGREES;
+  const southEastLng = (cache.j + 1) * TILE_DEGREES;
+
+  return [
+    [northWestLat, northWestLng], // Northwest corner
+    [southEastLat, southEastLng], // Southeast corner
+  ];
+}
 
 class UIManager {
   // handles updating status panel
@@ -218,6 +238,9 @@ class MapManager {
           // Update the cache state
           cacheManager.saveCacheState(cache);
 
+          // save game state
+          saveGameState();
+
           // Update the popup coin count
           const coinValue = popupDiv.querySelector<HTMLSpanElement>("#value");
           if (coinValue) {
@@ -261,8 +284,8 @@ class MapManager {
 const mapManager = new MapManager(map);
 
 class GameController {
-  private uiManager: UIManager;
-  private mapManager: MapManager;
+  public uiManager: UIManager;
+  public mapManager: MapManager;
 
   constructor(uiManager: UIManager, mapManager: MapManager) {
     this.uiManager = uiManager;
@@ -444,3 +467,86 @@ function updatePlayerPosition(lat: number, lng: number) {
   // regenerate caches around new pos
   regenerateCaches(mapManager);
 }
+
+// storing + loading game state & handling geolocation
+
+// save player's game state to local storage
+function saveGameState() {
+  const currentPosition = playerMarker.getLatLng();
+  const gameState = {
+    playerLat: currentPosition.lat,
+    playerLng: currentPosition.lng,
+    playerCoins: playerCoins,
+    isGeolocationEnabled: isGeolocationEnabled,
+  };
+
+  // save game state as a string in local storage
+  localStorage.setItem("gameState", JSON.stringify(gameState));
+
+  // save cache states
+  const cacheStates = Object.values(cacheGrid).map((cache: Cache) =>
+    cache.toMemento()
+  );
+  localStorage.setItem("cacheStates", JSON.stringify(cacheStates));
+  console.log("Game state saved!");
+}
+
+function loadGameState() {
+  const savedState = localStorage.getItem("gameState");
+  if (savedState) {
+    const gameState = JSON.parse(savedState);
+    playerCoins = gameState.playerCoins || 0;
+    const restoredLatLng = leaflet.latLng(
+      gameState.playerLat,
+      gameState.playerLng,
+    );
+    playerMarker.setLatLng(restoredLatLng); // move player to saved position
+
+    statusPanel.innerHTML = `You have ${playerCoins} player coins.`;
+
+    // restore geolocation state
+    if (gameState.isGeolocationEnabled) {
+      startGeolocationTracking(); // resume geolocation if it was enabled
+    }
+
+    console.log("Game state loaded!");
+  } else {
+    console.log("No saved game state found.");
+  }
+
+  // restore cache states
+  const savedCacheStates = localStorage.getItem("cacheStates");
+  if (savedCacheStates) {
+    const cacheStates = JSON.parse(savedCacheStates);
+    cacheStates.forEach((memento: string) => {
+      const cache = new Cache(0, 0); // init cache w dummy data
+      cache.fromMemento(memento); // restore cache from memento string
+
+      const cacheBounds = getBoundsFromCache(cache);
+      //cacheGrid[`${cache.i}:${cache.j}`] = cache; // add to cache grid
+
+      // regenerate caches in the UI
+      mapManager.addCacheToMap(cache, cacheBounds, { i: cache.i, j: cache.j });
+    });
+    console.log("Cache states loaded!");
+  }
+}
+
+// saving game periodically
+gameController.movePlayer = function (
+  latChange: number,
+  lngChange: number,
+): void {
+  movePlayer(latChange, lngChange, this.uiManager);
+  regenerateCaches(this.mapManager);
+
+  // save game state after ever move
+  saveGameState();
+
+  const currentPosition = playerMarker.getLatLng();
+  this.uiManager.updateStatus(
+    `Player moved to (${currentPosition.lat.toFixed(5)}, ${
+      currentPosition.lng.toFixed(5)
+    })`,
+  );
+};
