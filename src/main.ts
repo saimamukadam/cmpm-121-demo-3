@@ -52,6 +52,29 @@ let playerCoins = 0;
 const statusPanel = document.querySelector<HTMLDivElement>("#statusPanel")!;
 statusPanel.innerHTML = `You have ${playerCoins} coins.`;
 
+// track geolocation state
+let isGeolocationEnabled = false; // flag to track geolocation status
+let geolocationWatchId: number | null = null; // store geolocation watch id
+const geolocationButton = document.querySelector<HTMLButtonElement>("#sensor")!;
+
+geolocationButton.addEventListener("click", () => {
+  if (isGeolocationEnabled) {
+    // stop geolocation tracking
+    if (geolocationWatchId !== null) {
+      navigator.geolocation.clearWatch(geolocationWatchId);
+    }
+    isGeolocationEnabled = false;
+    geolocationButton.innerHTML = "🌐 Enable Geolocation"; // change button text
+    console.log("Geolocation updates stopped");
+  } else {
+    // start geolocation tracking
+    startGeolocationTracking();
+    isGeolocationEnabled = true;
+    geolocationButton.innerHTML = "🌐 Disable Geolocation"; // change button text
+    console.log("Geolocation updates started");
+  }
+});
+
 // helper func to convert latitude/longitude to global grid (i,j)
 function _latLngToGrid(lat: number, lng: number): { i: number; j: number } {
   // global coordinates system setup
@@ -387,3 +410,37 @@ eastButton.addEventListener(
 
 // initial cache generation
 regenerateCaches(mapManager);
+
+// start geolocation tracking
+function startGeolocationTracking() {
+  // use geolocation api to watch device's position
+  geolocationWatchId = navigator.geolocation.watchPosition(
+    (position) => {
+      const { latitude, longitude } = position.coords;
+      updatePlayerPosition(latitude, longitude); // update player position on map
+    },
+    (error) => {
+      console.error("Error getting geolocation:", error);
+      alert("Unable to access geolocation.");
+    },
+    {
+      enableHighAccuracy: true, // try to get most accurate location
+      maximumAge: 1000, // get new location data at least every sec
+      timeout: 5000, // timeout after 5 secs if no location is found
+    },
+  );
+}
+
+// update player position on map
+function updatePlayerPosition(lat: number, lng: number) {
+  // move player marker to new position based on geolocation
+  const newLatLng = leaflet.latLng(lat, lng);
+  playerMarker.setLatLng(newLatLng);
+  map.setView(newLatLng); // center map to new pos
+
+  // update status panel w new coordinates
+  statusPanel.innerHTML = `You are at (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+
+  // regenerate caches around new pos
+  regenerateCaches(mapManager);
+}
